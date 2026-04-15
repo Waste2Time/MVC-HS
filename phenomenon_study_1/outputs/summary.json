@@ -1,0 +1,26 @@
+{
+  "baseline": {
+    "acc": 0.9121666666666666,
+    "nmi": 0.6763718499478893,
+    "ari": 0.7537106949795971,
+    "boundary_acc": 0.7398809523809524,
+    "boundary_nmi": 0.31565325190830984,
+    "boundary_ari": 0.37188115050000836,
+    "boundary_margin": 0.6513754133321374,
+    "boundary_disagreement": 0.2687538428675405,
+    "hard_hit_bc_ratio": 0.0,
+    "hard_hit_d_ratio": 0.0
+  },
+  "hard": {
+    "acc": 0.9123333333333333,
+    "nmi": 0.6786435331540607,
+    "ari": 0.7541367639230617,
+    "boundary_acc": 0.7404761904761905,
+    "boundary_nmi": 0.32088995182213986,
+    "boundary_ari": 0.37264237406282325,
+    "boundary_margin": 0.6228151297364406,
+    "boundary_disagreement": 0.2687538428675405,
+    "hard_hit_bc_ratio": 0.9898148148148149,
+    "hard_hit_d_ratio": 0.009259259259259259
+  }
+}
