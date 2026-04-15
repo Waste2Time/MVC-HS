@@ -1,64 +1,56 @@
-# phenomenon_study_1（独立于原工程）
+# phenomenon_study_1（四阶段版本）
 
-该目录是按 `phenomenon_study_1.md` 的要求新增的**独立实验目录**，不修改原始训练代码与配置文件。
+按你的要求，这一版把实验拆成 **4 个独立 `.py` 文件**，分别对应四个阶段。
 
-## 你可以直接运行
+## 实验脚本
+
+1. `stage1_boundary_identification.py`  
+   最简二分类同方差高斯。定义真实边界困难样本，比较：
+   - 欧氏 prototype 困难度（到真实类中心距离）
+   - 决策边界 margin 困难度（分类 margin 反向）
+
+2. `stage2_reweight_training.py`  
+   在训练中对 top-k 困难样本重加权，比较两种困难度定义带来的：
+   - overall accuracy
+   - boundary accuracy
+   - hard sample precision
+
+3. `stage3_overlap_sweep.py`  
+   连续调节两类均值距离（overlap 从易到难），记录两种方法在：
+   - hard precision
+   - boundary accuracy gain
+   - overall accuracy gain
+
+4. `stage4_heteroscedastic_stability.py`  
+   从同方差扩展到异方差高斯，测试现象稳定性，继续比较两种困难样本方式。
+
+---
+
+## 快速运行示例
 
 ```bash
-python phenomenon_study_1/run_study.py
+python phenomenon_study_1/stage1_boundary_identification.py
+python phenomenon_study_1/stage2_reweight_training.py
+python phenomenon_study_1/stage3_overlap_sweep.py
+python phenomenon_study_1/stage4_heteroscedastic_stability.py
 ```
 
-默认会执行：
-- 3 个二维 Student-t 簇（每类 400 样本，`df=4`）；
-- 双视图构造（view1/view2）与边界冲突注入；
-- Baseline vs Baseline+Hard（简化 hard mining 版本）；
-- 多随机种子统计；
-- 输出 boundary-ARI、boundary-margin、boundary-disagreement 等指标；
-- 生成散点图和柱状图。
+输出将分别写入：
 
-输出目录：`phenomenon_study_1/outputs/`
+- `phenomenon_study_1/outputs/stage1/`
+- `phenomenon_study_1/outputs/stage2/`
+- `phenomenon_study_1/outputs/stage3/`
+- `phenomenon_study_1/outputs/stage4/`
 
----
-
-## 文件说明
-
-- `run_study.py`：主实验脚本（数据生成 + 两个方法 + 指标 + 画图）。
-- `outputs/trials.json`：每个 seed 的详细结果。
-- `outputs/summary.json`：多 seed 平均结果。
-- `outputs/figure_1_latent_scatter.png`：必做散点图。
-- `outputs/figure_2_3_4_boundary_metrics.png`：边界指标对比图。
+每个阶段都会输出 `trials.json` 与 `summary.json`，阶段 3/4 还会输出趋势图。
 
 ---
 
-## 与原项目对接时可能缺失/不完整的部分（建议补齐）
+## 与你的四个假设的对应
 
-你在任务里提到“项目可能不完整”。结合当前仓库状态，以下部分很可能缺失或需要明确：
+- 阶段一：验证“边界主导型困难”下 margin 困难度识别更准。
+- 阶段二：验证 margin 挖掘出的 hard 样本训练价值更高（尤其 boundary 区域）。
+- 阶段三：验证随着 overlap 增强，margin 相对欧氏的优势扩大。
+- 阶段四：验证在轻微分布不规则（异方差）下现象仍成立。
 
-1. **`phenomenon_study_1.md` 备注里的 `train.py` 不存在**  
-   当前仓库入口是 `main.py`，若你想完全复用原训练管线，需要给出等价命令映射（例如 `train.py` 与 `main.py` 参数对应关系）。
-
-2. **缺少 synthetic 数据集接入主工程的数据加载路径**  
-   目前 `dataset.py` 主要是既有数据集接口。若要直接在原模型上做该 study，需补：
-   - synthetic 数据生成脚本；
-   - 对应 `config/*.yaml`（你备注中也提到了）；
-   - `MultiViewDataset` 对新数据集名的加载分支。
-
-3. **“hard mining” 在原工程中的开关约定需要文档化**  
-   备注里提到 `tau<0` baseline、`tau>0` hard，但当前 README 未写。建议补到主 README，避免复现实验时歧义。
-
-4. **边界样本 oracle 标注与评估脚本缺失**  
-   现有工程常规输出 ACC/NMI/ARI；若论文要强调 boundary 指标，需要补独立评估脚本（本目录已给出简化版实现思路）。
-
----
-
-## 说明
-
-本目录的 `Baseline+Hard` 是一个“现象验证版” hard 机制（不是替代你论文最终方法），目标是快速验证：
-- hard 机制是否更偏向命中边界样本；
-- boundary 指标是否比全局指标更明显受益。
-
-如果你希望我下一步把该 study **接到原 `main.py + config` 训练流**（完全走项目模型），我可以在不破坏主流程的前提下继续补齐：
-- synthetic dataset loader
-- 新增 config 文件
-- 一键运行脚本
-- 统一结果汇总脚本
+如果你希望，我下一步可以再补一个 `run_all_stages.py` 用于一键串联四阶段并自动汇总总报告。
