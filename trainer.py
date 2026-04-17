@@ -413,6 +413,70 @@ class Trainer():
                 total = total + torch.mean(F.softplus(s_neg - s_pos))
         return total
 
+    def _build_margin_hard_pos_neg_batch(self, feats: list):
+        """Margin-hard mining: select low-margin samples, then mine hard pos/neg across views by cosine similarity."""
+        V = len(feats)
+        B = feats[0].shape[0]
+        hard_ratio = float(getattr(self.args, "hard_ratio", 0.3) or 0.3)
+        hard_ratio = min(max(hard_ratio, 0.05), 1.0)
+        k_hard = max(1, int(B * hard_ratio))
+
+        with torch.no_grad():
+            labels_by_view = []
+            hard_idx_by_view = []
+            for v in range(V):
+                q = self.model.cluster_layers[v](feats[v].detach())
+                top2 = torch.topk(q, k=2, dim=1).values
+                margin = top2[:, 0] - top2[:, 1]
+                labels = torch.argmax(q, dim=1)
+                hard_idx = torch.argsort(margin)[:k_hard]
+                labels_by_view.append(labels)
+                hard_idx_by_view.append(hard_idx)
+
+        emb = [self._safe_l2_normalize(f, dim=1).detach() for f in feats]
+        hard_pos, hard_neg = {}, {}
+
+        for v in range(V):
+            anchor = emb[v]  # [B, D]
+            labels_v = labels_by_view[v]
+            for m in range(V):
+                if m == v:
+                    continue
+                cand = emb[m]
+                labels_m = labels_by_view[m]
+                hard_m = hard_idx_by_view[m]
+
+                pos_list, neg_list = [], []
+                for i in range(B):
+                    yi = labels_v[i]
+                    sim = torch.matmul(cand, anchor[i])  # [B]
+
+                    pos_mask_h = (labels_m == yi)
+                    pos_mask_h = pos_mask_h & torch.zeros_like(pos_mask_h, dtype=torch.bool).scatter_(0, hard_m, True)
+                    if not torch.any(pos_mask_h):
+                        pos_mask_h = (labels_m == yi)
+                    if not torch.any(pos_mask_h):
+                        pos_idx = i
+                    else:
+                        pos_idx = torch.argmin(sim.masked_fill(~pos_mask_h, float('inf')))
+
+                    neg_mask_h = (labels_m != yi)
+                    neg_mask_h = neg_mask_h & torch.zeros_like(neg_mask_h, dtype=torch.bool).scatter_(0, hard_m, True)
+                    if not torch.any(neg_mask_h):
+                        neg_mask_h = (labels_m != yi)
+                    if not torch.any(neg_mask_h):
+                        neg_idx = i
+                    else:
+                        neg_idx = torch.argmax(sim.masked_fill(~neg_mask_h, float('-inf')))
+
+                    pos_list.append(cand[pos_idx].unsqueeze(0))
+                    neg_list.append(cand[neg_idx].unsqueeze(0))
+
+                hard_pos[(v, m)] = torch.cat(pos_list, dim=0)
+                hard_neg[(v, m)] = torch.cat(neg_list, dim=0)
+
+        return hard_pos, hard_neg
+
     def _cluster_layer_update_one_epoch(self):
         eps = 1e-12
         self.model.train()
@@ -441,162 +505,162 @@ class Trainer():
 
         self._set_requires_grad(self.model, True)
 
-        def _train_hard_mining(self):
-            hp_maxiter, hn_maxiter, hp_alpha, hn_beta, hard_tau, hard_weight = self._get_hard_hparams()
 
-            self.model.eval()
-            with torch.no_grad():
-                # 初始化
-                y_pred_sp, centers_sp, features_sp = self.view_sp_cluster()
-                y_pred_uq, centers_uq, features_uq = self.unique_cluster()
+    def _train_hard_mining(self):
+        hp_maxiter, hn_maxiter, hp_alpha, hn_beta, hard_tau, hard_weight = self._get_hard_hparams()
 
-                self.model.unique_center = centers_uq
-                cluster_unique_assign = student_distribution(features_uq, self.model.unique_center)
-                cluster_unique_assign = enhance_distribution(cluster_unique_assign)
+        self.model.eval()
+        with torch.no_grad():
+            # 初始化
+            y_pred_sp, centers_sp, features_sp = self.view_sp_cluster()
+            y_pred_uq, centers_uq, features_uq = self.unique_cluster()
 
-                self.init_sp_cluster_centers(centers_sp)
-                self.evaluate_sp_cluster(y_pred_sp, centers_sp, features_sp)
-                new_indices = self.evaluate_unique_cluster(y_pred_uq, centers_uq, features_uq)
-                is_updated = self.model.update_best_indice(new_indices)
-                print('Best Indicators: ACC=%.5f, NMI=%.5f, ARI=%.5f, PUR = %.5f' %
-                      (self.model.best_indice['acc'], self.model.best_indice['nmi'],
-                       self.model.best_indice['ari'], self.model.best_indice['pur']))
-                if is_updated is True and self.args.save is True:
-                    print('saving model to:', self.args.weights)
-                    self.model.save_model()
-                print()
+            self.model.unique_center = centers_uq
+            cluster_unique_assign = student_distribution(features_uq, self.model.unique_center)
+            cluster_unique_assign = enhance_distribution(cluster_unique_assign)
 
-            for epoch in range(self.args.epochs):
-                t_epoch0 = time()
-                print(f'epoch: {epoch + 1}')
-                do_hard_epoch = ((epoch + 1) % self.args.update_interval == 0)
+            self.init_sp_cluster_centers(centers_sp)
+            self.evaluate_sp_cluster(y_pred_sp, centers_sp, features_sp)
+            new_indices = self.evaluate_unique_cluster(y_pred_uq, centers_uq, features_uq)
+            is_updated = self.model.update_best_indice(new_indices)
+            print('Best Indicators: ACC=%.5f, NMI=%.5f, ARI=%.5f, PUR = %.5f' %
+                  (self.model.best_indice['acc'], self.model.best_indice['nmi'],
+                   self.model.best_indice['ari'], self.model.best_indice['pur']))
+            if is_updated is True and self.args.save is True:
+                print('saving model to:', self.args.weights)
+                self.model.save_model()
+            print()
 
-                t_cluster0 = time()
-                self._cluster_layer_update_one_epoch()
-                t_cluster = time() - t_cluster0
+        for epoch in range(self.args.epochs):
+            t_epoch0 = time()
+            print(f'epoch: {epoch + 1}')
+            do_hard_epoch = ((epoch + 1) % self.args.update_interval == 0)
 
-                self.model.train()
-                self._set_requires_grad(self.model, True)
-                self._set_requires_grad(self.model.cluster_layers, False)
-                for p in self.model.cluster_layers.parameters():
-                    p.requires_grad = False
+            t_cluster0 = time()
+            self._cluster_layer_update_one_epoch()
+            t_cluster = time() - t_cluster0
 
-                # ====== logging accumulators (ONLY logging; training unchanged) ======
-                losses_sum = [0.0] * self.views
-                hard_sum = 0.0
-                base_sum = 0.0
-                total_sum = 0.0
-
-                t_train0 = time()
-                for x, y, idx in self.data_loader:
-                    x = [xi.to(self.device) for xi in x]
-                    self.opt.zero_grad()
-
-                    features, reconstructed_x, cluster_sp_assign = self.model(x, is_pretrain=False)
-                    if getattr(self.args, "normalize", 0) == 1:
-                        features = [F.normalize(f, p=2, dim=1) for f in features]
-
-                    z = torch.stack(features, dim=0).mean(0)
-                    reconstructed_z = [self.model.generator[v](z) for v in range(self.views)]
-
-                    losses = self.loss_fn(
-                        x=x,
-                        z=z,
-                        features=features,
-                        reconstructed_x=reconstructed_x,
-                        reconstructed_z=reconstructed_z,
-                        cluster_unique_assign=cluster_unique_assign[idx],
-                        cluster_sp_assign=cluster_sp_assign,
-                        args=self.args,
-                    )
-                    base_loss = sum(losses) / self.views
-
-                    hard_loss = torch.tensor(0.0, device=self.device)
-                    if hard_tau > 0 and do_hard_epoch:
-                        hard_pos, hard_neg = self._build_hard_pos_neg_batch(features)
-                        emb = [self._safe_l2_normalize(f, dim=1) for f in features]
-                        hard_loss = self._hard_contrastive_loss(emb, hard_pos, hard_neg, tau=hard_tau)
-                        hard_sum += float(hard_loss.detach().item())
-
-                    loss = base_loss + hard_weight * hard_loss
-                    loss.backward()
-                    self.opt.step()
-
-                    # ====== logging only ======
-                    base_sum += float(base_loss.detach().item())
-                    total_sum += float(loss.detach().item())
-                    for v in range(self.views):
-                        losses_sum[v] += float(losses[v].detach().item())
-
-                t_train = time() - t_train0
-                num_batches = max(1, len(self.data_loader))
-                epoch_loss_total = total_sum / num_batches
-                epoch_loss_base = base_sum / num_batches
-                epoch_hard_cl = (hard_sum / num_batches) if (hard_tau > 0 and do_hard_epoch) else 0.0
-
-                # --------- NEW structured log line (easy to parse) ---------
-                # NOTE: hard_weight is intentionally NOT logged (per your request).
-                t_epoch = time() - t_epoch0
-                print(
-                    f"[TRAIN][hard] epoch={epoch + 1} "
-                    f"loss_total={epoch_loss_total:.6f} "
-                    f"loss_base={epoch_loss_base:.6f} "
-                    f"hard_cl={epoch_hard_cl:.6f} "
-                    f"time_cluster={t_cluster:.2f}s "
-                    f"time_train={t_train:.2f}s "
-                    f"time_epoch={t_epoch:.2f}s"
-                )
-                # ----------------------------------------------------------
-
-                if (epoch + 1) % self.args.update_interval == 0:
-                    print('更新聚类质心')
-                    self.model.eval()
-                    t_update0 = time()
-                    with torch.no_grad():
-                        t_uc0 = time()
-                        y_pred_uq, centers_uq, features_uq = self.unique_cluster()
-                        t_uc = time() - t_uc0
-                        self.model.unique_center = centers_uq
-                        cluster_unique_assign = student_distribution(features_uq, self.model.unique_center)
-                        cluster_unique_assign = enhance_distribution(cluster_unique_assign)
-                        t_ev0 = time()
-                        new_indices = self.evaluate_unique_cluster(y_pred_uq, centers_uq, features_uq)
-                        t_ev = time() - t_ev0
-                        is_updated = self.model.update_best_indice(new_indices)
-                        print('Best Indicators: ACC=%.5f, NMI=%.5f, ARI=%.5f, PUR = %.5f' %
-                              (self.model.best_indice['acc'], self.model.best_indice['nmi'],
-                               self.model.best_indice['ari'], self.model.best_indice['pur']))
-                        if is_updated is True and self.args.save is True:
-                            print('saving model to:', self.args.weights)
-                            self.model.save_model()
-
-                    t_update_total = time() - t_update0
-                    print(f"[TIME] epoch={epoch+1} stage=update_cluster total={t_update_total:.2f}s unique_cluster={t_uc:.2f}s eval_unique={t_ev:.2f}s")
-
-                elif (epoch + 1) % self.args.cluster_interval == 0 and epoch != 0:
-                    self.model.eval()
-                    # timing (logging only)
-                    t_eval0 = time()
-                    with torch.no_grad():
-                        t_uc0 = time()
-                        y_pred_uq, centers_uq, features_uq = self.unique_cluster()
-                        t_uc = time() - t_uc0
-                        t_sp0 = time()
-                        self.evaluate_sp_cluster(y_pred_sp, centers_sp, features_sp)
-                        t_sp = time() - t_sp0
-                        is_updated = self.model.update_best_indice(new_indices)
-                        print('Best Indicators: ACC=%.5f, NMI=%.5f, ARI=%.5f, PUR = %.5f' %
-                              (self.model.best_indice['acc'], self.model.best_indice['nmi'],
-                               self.model.best_indice['ari'], self.model.best_indice['pur']))
-                        if is_updated is True and self.args.save is True:
-                            print('saving model to:', self.args.weights)
-                            self.model.save_model()
-                    t_eval_total = time() - t_eval0
-                    print(f"[TIME] epoch={epoch+1} stage=cluster_eval total={t_eval_total:.2f}s unique_cluster={t_uc:.2f}s eval_sp={t_sp:.2f}s")
-                print()
-
+            self.model.train()
             self._set_requires_grad(self.model, True)
+            self._set_requires_grad(self.model.cluster_layers, False)
+            for p in self.model.cluster_layers.parameters():
+                p.requires_grad = False
 
+            # ====== logging accumulators (ONLY logging; training unchanged) ======
+            losses_sum = [0.0] * self.views
+            hard_sum = 0.0
+            base_sum = 0.0
+            total_sum = 0.0
+
+            t_train0 = time()
+            for x, y, idx in self.data_loader:
+                x = [xi.to(self.device) for xi in x]
+                self.opt.zero_grad()
+
+                features, reconstructed_x, cluster_sp_assign = self.model(x, is_pretrain=False)
+                if getattr(self.args, "normalize", 0) == 1:
+                    features = [F.normalize(f, p=2, dim=1) for f in features]
+
+                z = torch.stack(features, dim=0).mean(0)
+                reconstructed_z = [self.model.generator[v](z) for v in range(self.views)]
+
+                losses = self.loss_fn(
+                    x=x,
+                    z=z,
+                    features=features,
+                    reconstructed_x=reconstructed_x,
+                    reconstructed_z=reconstructed_z,
+                    cluster_unique_assign=cluster_unique_assign[idx],
+                    cluster_sp_assign=cluster_sp_assign,
+                    args=self.args,
+                )
+                base_loss = sum(losses) / self.views
+
+                hard_loss = torch.tensor(0.0, device=self.device)
+                if hard_tau > 0 and do_hard_epoch:
+                    hard_pos, hard_neg = self._build_margin_hard_pos_neg_batch(features)
+                    emb = [self._safe_l2_normalize(f, dim=1) for f in features]
+                    hard_loss = self._hard_contrastive_loss(emb, hard_pos, hard_neg, tau=hard_tau)
+                    hard_sum += float(hard_loss.detach().item())
+
+                loss = base_loss + hard_weight * hard_loss
+                loss.backward()
+                self.opt.step()
+
+                # ====== logging only ======
+                base_sum += float(base_loss.detach().item())
+                total_sum += float(loss.detach().item())
+                for v in range(self.views):
+                    losses_sum[v] += float(losses[v].detach().item())
+
+            t_train = time() - t_train0
+            num_batches = max(1, len(self.data_loader))
+            epoch_loss_total = total_sum / num_batches
+            epoch_loss_base = base_sum / num_batches
+            epoch_hard_cl = (hard_sum / num_batches) if (hard_tau > 0 and do_hard_epoch) else 0.0
+
+            # --------- NEW structured log line (easy to parse) ---------
+            # NOTE: hard_weight is intentionally NOT logged (per your request).
+            t_epoch = time() - t_epoch0
+            print(
+                f"[TRAIN][hard] epoch={epoch + 1} "
+                f"loss_total={epoch_loss_total:.6f} "
+                f"loss_base={epoch_loss_base:.6f} "
+                f"hard_cl={epoch_hard_cl:.6f} "
+                f"time_cluster={t_cluster:.2f}s "
+                f"time_train={t_train:.2f}s "
+                f"time_epoch={t_epoch:.2f}s"
+            )
+            # ----------------------------------------------------------
+
+            if (epoch + 1) % self.args.update_interval == 0:
+                print('更新聚类质心')
+                self.model.eval()
+                t_update0 = time()
+                with torch.no_grad():
+                    t_uc0 = time()
+                    y_pred_uq, centers_uq, features_uq = self.unique_cluster()
+                    t_uc = time() - t_uc0
+                    self.model.unique_center = centers_uq
+                    cluster_unique_assign = student_distribution(features_uq, self.model.unique_center)
+                    cluster_unique_assign = enhance_distribution(cluster_unique_assign)
+                    t_ev0 = time()
+                    new_indices = self.evaluate_unique_cluster(y_pred_uq, centers_uq, features_uq)
+                    t_ev = time() - t_ev0
+                    is_updated = self.model.update_best_indice(new_indices)
+                    print('Best Indicators: ACC=%.5f, NMI=%.5f, ARI=%.5f, PUR = %.5f' %
+                          (self.model.best_indice['acc'], self.model.best_indice['nmi'],
+                           self.model.best_indice['ari'], self.model.best_indice['pur']))
+                    if is_updated is True and self.args.save is True:
+                        print('saving model to:', self.args.weights)
+                        self.model.save_model()
+
+                t_update_total = time() - t_update0
+                print(f"[TIME] epoch={epoch+1} stage=update_cluster total={t_update_total:.2f}s unique_cluster={t_uc:.2f}s eval_unique={t_ev:.2f}s")
+
+            elif (epoch + 1) % self.args.cluster_interval == 0 and epoch != 0:
+                self.model.eval()
+                # timing (logging only)
+                t_eval0 = time()
+                with torch.no_grad():
+                    t_uc0 = time()
+                    y_pred_uq, centers_uq, features_uq = self.unique_cluster()
+                    t_uc = time() - t_uc0
+                    t_sp0 = time()
+                    self.evaluate_sp_cluster(y_pred_sp, centers_sp, features_sp)
+                    t_sp = time() - t_sp0
+                    is_updated = self.model.update_best_indice(new_indices)
+                    print('Best Indicators: ACC=%.5f, NMI=%.5f, ARI=%.5f, PUR = %.5f' %
+                          (self.model.best_indice['acc'], self.model.best_indice['nmi'],
+                           self.model.best_indice['ari'], self.model.best_indice['pur']))
+                    if is_updated is True and self.args.save is True:
+                        print('saving model to:', self.args.weights)
+                        self.model.save_model()
+                t_eval_total = time() - t_eval0
+                print(f"[TIME] epoch={epoch+1} stage=cluster_eval total={t_eval_total:.2f}s unique_cluster={t_uc:.2f}s eval_sp={t_sp:.2f}s")
+            print()
+
+        self._set_requires_grad(self.model, True)
     def train(self):
         _, _, _, _, hard_tau, _ = self._get_hard_hparams()
         if hard_tau <= 0:
