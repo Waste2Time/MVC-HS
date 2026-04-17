@@ -1,0 +1,32 @@
+[
+  {
+    "seed": 0,
+    "hard_ratio": 0.1,
+    "precision_euclidean": 0.09,
+    "precision_margin": 0.63
+  },
+  {
+    "seed": 1,
+    "hard_ratio": 0.0885,
+    "precision_euclidean": 0.06,
+    "precision_margin": 0.58
+  },
+  {
+    "seed": 2,
+    "hard_ratio": 0.096,
+    "precision_euclidean": 0.09,
+    "precision_margin": 0.57
+  },
+  {
+    "seed": 3,
+    "hard_ratio": 0.094,
+    "precision_euclidean": 0.08333333333333333,
+    "precision_margin": 0.58
+  },
+  {
+    "seed": 4,
+    "hard_ratio": 0.092,
+    "precision_euclidean": 0.08,
+    "precision_margin": 0.5733333333333334
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "overall_base": 0.8702380952380953,
+  "overall_eu": 0.8707142857142858,
+  "overall_margin": 0.8704761904761906,
+  "boundary_base": 0.6227423480245141,
+  "boundary_eu": 0.6277007263780084,
+  "boundary_margin": 0.6293415018233023,
+  "hard_precision_eu": 0.08034188034188035,
+  "hard_precision_margin": 0.5871794871794871
+}
