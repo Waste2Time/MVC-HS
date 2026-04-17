@@ -24,6 +24,13 @@
 4. `stage4_heteroscedastic_stability.py`  
    从同方差扩展到异方差高斯，测试现象稳定性，继续比较两种困难样本方式。
 
+
+5. `stage2_mlp_capacity_control.py`  
+   在阶段二基础上加入小型 MLP（`32,16`）与线性 LR 对照，分别做 baseline / eu-hard / margin-hard 重加权训练。
+   其中 margin-hard 改为**按各自模型**（LR/MLP）概率 margin 单独定义，并输出均值±标准差及 paired 优势统计，直接回答：
+   - hard sample 价值是否被模型能力压制；
+   - margin-hard 相对 eu-hard 的边界增益在 LR 与 MLP 下是否一致。
+
 ---
 
 ## 快速运行示例
@@ -33,6 +40,7 @@ python phenomenon_study_1/stage1_boundary_identification.py
 python phenomenon_study_1/stage2_reweight_training.py
 python phenomenon_study_1/stage3_overlap_sweep.py
 python phenomenon_study_1/stage4_heteroscedastic_stability.py
+python phenomenon_study_1/stage2_mlp_capacity_control.py
 ```
 
 输出将分别写入：
@@ -41,6 +49,7 @@ python phenomenon_study_1/stage4_heteroscedastic_stability.py
 - `phenomenon_study_1/outputs/stage2/`
 - `phenomenon_study_1/outputs/stage3/`
 - `phenomenon_study_1/outputs/stage4/`
+- `phenomenon_study_1/outputs/stage2_capacity_control/`
 
 每个阶段都会输出 `trials.json` 与 `summary.json`，阶段 3/4 还会输出趋势图。
 
