@@ -63,3 +63,51 @@ python phenomenon_study_1/stage2_mlp_capacity_control.py
 - 阶段四：验证在轻微分布不规则（异方差）下现象仍成立。
 
 如果你希望，我下一步可以再补一个 `run_all_stages.py` 用于一键串联四阶段并自动汇总总报告。
+
+# phenomenon_study / Stage5
+
+本目录是根据 `方案2.pdf` 新增的 stage5 现象研究实现：
+
+> 验证“只对 hardest 子集做 line-search”与“所有样本都可作为 anchor 做 line-search”在边界覆盖与边界质量上的差异。
+
+## 脚本
+
+- `stage5_all_anchor_line_search.py`
+
+## 运行
+
+```bash
+python phenomenon_study/stage5_all_anchor_line_search.py
+```
+
+可选参数（示例）：
+
+```bash
+python phenomenon_study/stage5_all_anchor_line_search.py \
+  --seeds 0 1 2 3 4 \
+  --n-per-cluster 400 \
+  --df 4 \
+  --p-conflict 0.4 \
+  --anchor-ratio 0.2
+```
+
+## 输出
+
+默认输出到 `phenomenon_study/stage5_outputs/`：
+
+- `stage5_trials.json`：每个 seed、每种策略（Only-H / M+H / All / Random）明细
+- `stage5_summary.json`：按策略聚合均值
+- `stage5_scatter_three_policies.png`：必做散点三联图（Only-H / M+H / All）
+
+## 当前 Stage5 实现与方案2指标对齐
+
+当前实现覆盖：
+- 全局与边界指标：ACC/NMI/ARI + boundary-ACC/NMI/ARI
+- 边界 margin
+- 覆盖率：class coverage / pair coverage / radial coverage
+- anchor 策略对比：Only-H / M+H / All / Random
+
+后续可继续补齐：
+- disagreement 指标
+- 训练过程曲线（loss / prototype drift / assignment flip）
+- 更严格的 line-search 轨迹约束版本
